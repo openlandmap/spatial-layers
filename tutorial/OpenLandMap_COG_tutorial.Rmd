@@ -1,0 +1,223 @@
+---
+title: "OpenLandMap data cube: accessing, understanding and using COG's"
+author: "Tomislav Hengl (tom.hengl@opengeohub.org) and Leandro Parente (leandro.parente@opengeohub.org)"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  github_document:
+    toc: true
+    toc_depth: 4
+bibliography: ../tex/soc_literature.bib
+csl: ../tex/apa.csl  
+fig_caption: yes
+link-citations: yes
+twitter-handle: opengeohub
+header-includes:
+- \usepackage{caption}
+---
+
+[<img src="../img/openlandmap-logo-black.png" alt="OpenGeoHub logo" width="250"/>](https://openlandmap.org)
+
+[<img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-sa/4.0/88x31.png" />](http://creativecommons.org/licenses/by-sa/4.0/)
+
+This work is licensed under a [Creative Commons Attribution-ShareAlike 4.0 International License](http://creativecommons.org/licenses/by-sa/4.0/).
+
+```{r, include=FALSE}
+library(captioner)
+fig_nums <- captioner(prefix = "Fig.")
+options(warn=-1)
+```
+
+## OpenLandMap on Wasabi / Cloud-Optimized GeoTIFF
+
+Part of: [OpenLandMap global layers](https://gitlab.com/openlandmap/global-layers)  
+Last update:  `r Sys.Date()`
+
+[Cloud-Optimized GeoTIFFs](https://www.cogeo.org/) are post-processed images that are optimized for file sharing and can be considered to be equivalent to Geospatial databases as they can serve spatial queries [@kulkarni2019cloud]. All OpenLandMap layers available via the data portal are, in principle, immediately made available via our file service, hosted on Wasabi.com.
+
+In this tutorial we explain how to access Cloud Optimized GeoTiffs-COG files, query 
+values for COG's at point locations, retrieve the raster data only for a specific 
+geographic window (crop images) and run more advanced spatial analysis. We focus mainly 
+on the R programming language, although you could also implement the similar 
+functionality [using python](https://gitlab.com/geoharmonizer_inea/eumap/-/tree/master/demo/python) or similar.
+
+#### _Listing all layers available_
+
+To list all GeoTIFs available via the OpenLandMap Wasabi service you can use **[this table](https://gitlab.com/openlandmap/global-layers/-/tree/master/tables/openlandmap_wasabi_files.csv)**. 
+The detailed description of all layers is available from [https://gitlab.com/openlandmap/global-layers/](https://gitlab.com/openlandmap/global-layers/).
+At the moment, almost all layers that are visible via www.openlandmap.org can also be accessed 
+via the OpenLandMap Wasabi service. Note each group of layers that is stored in some 
+folder has been resampled to perfectly match the same grid definition (resolution, bounding box etc) 
+and can be considered to be a separate **data-cube**.
+
+Currently available groups of layers at `https://s3.eu-central-1.wasabisys.com/openlandmap/` include:
+
+- layers100m,  
+- layers250m,  
+- layers1km,  
+- layers2km,  
+- layers5km,  
+- layers10km,  
+
+
+#### _Viewing data in QGIS_
+
+The public URLs for the COG files can be used to view the files in QGIS or similar ([access GeoTIFFs in QGIS](https://www.cogeo.org/qgis-tutorial.html)). The example below shows FAPAR 
+image (annual average for 2014--2017) displayed in QGIS by using the following file location:
+
+```{r}
+in.tif = "/vsicurl/https://s3.eu-central-1.wasabisys.com/openlandmap/predicted1km/pnv_fapar_proba.v.annual_d_1km_s0..0cm_2014..2017_v0.1.tif"
+```
+
+Instructions to open the image in QGIS:
+
+- Prepare the URL specifying location of the COG in your geographical region (see above),  
+- Open QGIS and select add Raster layer --> HTTP service,  
+- Add layers and customize legend / display,  
+
+```{r qgis_layer, echo=FALSE, out.width="80%"}
+knitr::include_graphics("../img/qgis_openlandmap_add_layer.png")
+```
+
+`r fig_nums("qgis_layer", "Opening OpenLandMap layers using QGIS.")`
+
+Once the layers is connected via QGIS, you can use it as virtual layer and compute 
+with it as if it was locally stored on your machine. Most importantly, you can use GDAL 
+utilities [@mcinerney2014open] to reproject, resample and subset the data. For example, 
+to download only FPAR data for Netherlands, and reproject to a local system we use:
+
+```{r}
+library(rgdal)
+library(terra)
+nl.tif = "NL_1km_FAPAR.tif"
+nl.te = "12621.63 305583 279621.6 621583"
+nl.prj = paste("+proj=sterea +lat_0=52.1561605555556 +lon_0=5.38763888888889 +k=0.9999079", 
+          "+x_0=155000 +y_0=463000 +ellps=bessel",
+          "+towgs84=565.4171,50.3319,465.5524,-0.398957388243,0.343987817378,-1.87740163998,4.0725",
+          "+units=m +no_defs")
+system(paste0('gdalwarp ', in.tif, ' ', nl.tif, ' -overwrite ',
+              ' -t_srs \"', nl.prj, '\" -te ', nl.te, ' -tr 1000 1000'))
+```
+
+```{r nl_plot, echo=FALSE, out.width="60%"}
+nl.sp = rgdal::readGDAL(nl.tif)
+spplot(nl.sp)
+```
+
+`r fig_nums("nl_plot", "Subset of the FAPAR image for Netherlands.")`
+
+We do **NOT** however recommend computing with complete land mask as this means 
+downloading gigabytes of files. Instead, if you need to analyze whole land mask, 
+we recommend downloading the files directly from [zenodo.org](https://zenodo.org/search?page=1&size=20&q=openlandmap).
+
+## ![alt text](../tex/R_logo.svg.png "Packages in use") Accessing data from R
+
+
+#### _Point queries_
+
+We can query values in the target layer using WGS84 longitude and latitude coordinates. 
+First, we need to connect to the file best using the **terra** package [@hijmans2020package]:
+
+```{r terra}
+tif = rast(in.tif)
+```
+
+Your R session is now connected with the virtual layer on Wasabi and from here you can use 
+all spatial operations normally as the file was available locally:
+
+```{r}
+tif
+```
+
+Note that the `tif` object is very small. Locally, you have only downloaded the 
+file header i.e. geographical definition of the layer including some metadata.
+
+To query a value of the layer at some location xy you can use:
+
+```{r}
+xy = data.frame(lon=9.1126, lat=49.6466)
+terra::extract(tif, xy)
+```
+
+To open this layer in a browser and focus on the location of interest (xy coods) you can use:
+
+```{r, eval=FALSE}
+browseURL('https://openlandmap.org/#/?base=BingMaps%20(Aerial)
+          &center=49.6466,9.1126&zoom=15&opacity=53&layer=veg_fapar_proba.v.*_d&time=July')
+```
+
+This shows the following:
+
+```{r openlandmap_layer, echo=FALSE, out.width="80%"}
+knitr::include_graphics("../img/openlandmap_preview_fapar.jpg")
+```
+
+`r fig_nums("openlandmap_layer", "Viewing FAPAR images using OpenLandMap.")`
+
+To overlay multiple points at the same time, we can use some parallelisation e.g. 
+by combining the parallel with terra package:
+
+```{r}
+in.tif.lst = paste0("/vsicurl/https://s3.eu-central-1.wasabisys.com/openlandmap/predicted1km/",
+      "pnv_fapar_proba.v.", c("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 
+      "_d_1km_s0..0cm_2014..2017_v0.1.tif")
+xy.lst = data.frame(lon=c(4.057, 11.360, 17.911, 10.208, 16.273, -3.799, -1.148, -8.180, 20.833, 16.676),
+           lat=c(50.3871, 61.962, 47.252, 46.276, 40.605, 38.335, 52.572, 53.591, 42.077, 51.347))
+ov = parallel::mclapply(in.tif.lst, function(i){terra::extract(rast(i), xy.lst)}, mc.cores = 10)
+```
+
+which now gives a matrix of values with coordinates and values for target layers:
+
+```{r}
+ov.df = as.data.frame(lapply(ov, function(i){i[,2]}))
+names(ov.df) = basename(in.tif.lst)
+ov.df = cbind(xy.lst, ov.df)
+str(ov.df)
+```
+
+Note that we do not recommend using more >10 threads to parallelize access as 
+the service might block you. If this happens please report your IP and type of error 
+you get and we will do our best to help.
+
+#### _Cropping files to smaller areas_
+
+Another useful function in the terra package is the `crop` function which allows us to 
+quickly subset and download GeoTIFF, so that we can analyze the data from R:
+
+```{r}
+ext <- ext(-5, 5, 5, 10)
+rc <- terra::crop(tif, ext)
+```
+
+The object size is now small enough for plotting in R:
+
+```{r openlandmap_plot, echo=FALSE, out.width="60%"}
+plot(rc)
+```
+
+`r fig_nums("openlandmap_plot", "Example crop of FAPAR image for Western Africa.")`
+
+The same way we could also subset and prepare all layers of interest for this study area. 
+So in summary: 
+
+1. OpenLandMap.org provides access to about 1TB of GeoTIFF images (see [complete list](https://gitlab.com/openlandmap/global-layers/-/tree/master/tables/openlandmap_wasabi_files.csv)).  
+2. GeoTIFFs can be all accessed using OpenLandMap.org Wasabi service and then used for spatial analysis.  
+3. Please avoid downloading the complete layers / tifs from Wasabi because eventually 
+your IP might get blocked.  
+4. Instead, to download the complete world coverage, you should use zenodo.org.  
+
+To access OpenLandMap COGs using the terra package you should follow these simple steps:
+
+1. Specify URL location of the layer (global mosaics) based on the **[list](https://gitlab.com/openlandmap/global-layers/-/tree/master/tables/openlandmap_wasabi_files.csv)**,
+2. Define the layer using `tif = rast(in.tif)`.
+3. From there you can basically use any terra package operation as if the data was locally on your computer.
+4. Do **NOT load or download** the whole global mosaics using COG functionality 
+ as this might results in (a) your system crashing, and/or (b) your IP getting blocked.
+
+To read more about GeoTIFF and how to access it using GDAL please refer 
+to [this post](https://gdal.org/drivers/raster/cog.html). To learn about the terra package, please refer also to the [this manual](https://rspatial.org/terra). Another interesting package for computing with time-series of rasters is the [gdalcubes](https://github.com/appelmar/gdalcubes_R) package [@appel2019demand].
+
+```{r, include=FALSE}
+options(warn=0)
+```
+
+## References
