@@ -14,10 +14,10 @@ def _eval(str_val, args):
     return eval("f'"+str_val+"'", args)
 
 def get_ensem_dtm_bare_earth_url():
-    return ('https://s3.eu-central-1.wasabisys.com/openlandmap/dtm/dtm.bareearth_ensemble_p10_30m_s_2018_go_epsg4326_v20230130.tif')
+    return ('https://s3.eu-central-1.wasabisys.com/openlandmap/dtm/dtm.bareearth_ensemble_p10_30m_s_2018_go_epsg4326_v20230221.tif')
 
 def get_ensem_dtm_std_url():
-    return ('https://s3.eu-central-1.wasabisys.com/openlandmap/dtm/dtm.bareearth_ensemble_std_30m_s_2018_go_epsg4326_v20230130.tif')
+    return ('https://s3.eu-central-1.wasabisys.com/openlandmap/dtm/dtm.bareearth_ensemble_std_30m_s_2018_go_epsg4326_v20230221.tif')
 
 def read_overview(layer_path, oviews_pos = -4, verbose = False):
     if verbose:
